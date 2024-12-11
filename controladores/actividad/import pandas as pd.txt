@@ -1,0 +1,162 @@
+import pandas as pd
+import numpy as np
+import time
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import string
+import nltk
+import re
+from nltk.stem import PorterStemmer
+from nltk.tokenize import sent_tokenize, word_tokenize
+from collections import defaultdict, Counter
+nltk.download('punkt')
+nltk.download('stopwords')
+stop_words = stopwords.words('english')
+def leertituloscsv(archivo):
+    df = pd.read_csv(archivo, skiprows=1, header=None, encoding="utf-8")
+    return df
+doc=leertituloscsv("[UCI] AAAI-14 Accepted Papers - Papers.csv")
+titulos=doc[0].tolist()
+keyword=doc[3].tolist()
+abstrac=doc[5].tolist()
+print(len(titulos))
+print(len(keyword))
+print(len(abstrac))
+def minusculas(doc):
+    doc = [x.lower() for x in doc]
+    return doc
+def elcaresp(doc):
+    lista=[re.sub('[^A-Za-záéíóúñÁÉÍÓÚÑ0-9]+',' ',i) for i in doc]
+    return lista
+def tokenizacion(doc):
+    listaToken=[re.findall(r'\w+',i) for i in doc]
+    return listaToken
+def stopwords(doc,stop_words):
+    lista=[]
+    for i in doc:
+      if i not in stop_words:
+        lista.append(i)
+    return lista
+def stemmer(doc):
+    stemmer=PorterStemmer()
+    tokens_stemmed = list()
+    for tokens in doc:
+      tokens_stemmed.append(stemmer.stem(tokens))
+    return tokens_stemmed
+def normalizacion(doc):
+    doc=minusculas(doc)
+    doc=elcaresp(doc)
+    doc=stopwords(doc,stop_words)
+    #doc=tokenizacion(doc)
+    #return doc
+    doc=stemmer(doc)
+    return doc
+def crear_Lista(document,tokens):
+    dic=defaultdict(list)
+    for  doc in enumerate(document):
+        for palabra in set(doc):
+            frecuencia = doc.count(palabra)
+            dic[palabra].append((idx, frecuencia))
+    return dic
+    
+def crear_matriz_frecuencias(documentos,token):
+    documentos_tokenizados = token
+    vocabulario = set()  # Construir vocabulario
+    for doc in documentos_tokenizados:
+        vocabulario.update(doc)
+    vocabulario = sorted(vocabulario)  # Ordenar vocabulario
+    
+    # Construir matriz de frecuencias
+    matriz_frecuencias = []
+    for doc in documentos_tokenizados:
+        conteo = Counter(doc)  # Contar palabras en el documento
+        fila = [conteo.get(palabra, 0) for palabra in vocabulario]  # Frecuencia o 0
+        matriz_frecuencias.append(fila)
+    
+    return vocabulario, matriz_frecuencias
+def similitud_jaccard(doc1, doc2):
+    set1, set2 = set(doc1), set(doc2)  
+    interseccion = len(set1 & set2)   
+    union = len(set1 | set2)          
+    return interseccion / union if union != 0 else 0
+def matriz_similitud_jaccard(doc):
+    n = len(doc)
+    matriz_jaccard = np.zeros((n, n))
+    
+    # Calcular similitud para cada par de documentos
+    for i in range(n):
+        for j in range(n):
+            matriz_jaccard[i, j] = similitud_jaccard(doc[i], doc[j])
+    
+    return matriz_jaccard
+def calcular_wtf(matriz_frecuencias):
+    # Aplicar fórmula de WTF: 1 + log(frecuencia), si frecuencia > 0, sino 0
+    matriz_wtf = np.where(matriz_frecuencias > 0, 1 + np.log(matriz_frecuencias), 0)
+    return matriz_wtf
+def calcular_idf(vocabulario, matriz_frecuencias):
+    N = len(matriz_frecuencias)  # Número total de documentos
+    df = np.sum(np.array(matriz_frecuencias) > 0, axis=0)  # Documentos donde aparece cada palabra
+    idf = np.log(N / df)  # Fórmula de IDF
+    return dict(zip(vocabulario, idf))
+def calcular_tf_idf(matriz_wtf, idf):
+    matriz_wtf_np = np.array(matriz_wtf)
+    idf_vector = np.array([idf[palabra] for palabra in vocabulario])  # Convertir IDF a vector
+    matriz_tf_idf = matriz_wtf_np * idf_vector  # Multiplicar WTF por IDF
+    return matriz_tf_idf
+def norma(vector):
+    return np.sqrt(np.sum(np.square(vector)))
+
+# Función para calcular la similitud de coseno entre dos vectores
+def similitud_coseno(vector1, vector2):
+    producto_punto = np.dot(vector1, vector2)
+    norma_v1 = norma(vector1)
+    norma_v2 = norma(vector2)
+    if norma_v1 == 0 or norma_v2 == 0:
+        return 0  # Evitar división por cero
+    return producto_punto / (norma_v1 * norma_v2)
+
+# Función para calcular la matriz de similitud de coseno
+def calcular_matriz_similitud_coseno_manual(matriz):
+    n = len(matriz)  # Número de documentos
+    matriz_similitud = np.zeros((n, n))  # Inicializamos una matriz de ceros
+    for i in range(n):
+        for j in range(n):
+            matriz_similitud[i, j] = similitud_coseno(matriz[i], matriz[j])
+    return matriz_similitud
+
+
+titulos=normalizacion(titulos)
+tokens=tokenizacion(titulos)
+vocabulario, matriz_frecuencias= crear_matriz_frecuencias(titulos,tokens)
+matriz_frecuencias_np = np.array(matriz_frecuencias)
+matriz_wtf = calcular_wtf(matriz_frecuencias_np)
+idf = calcular_idf(vocabulario, matriz_frecuencias)
+matriz_tf_idf = calcular_tf_idf(matriz_wtf, idf)
+matriz = np.array(matriz_tf_idf)  # Aseguramos que sea un array numpy
+matriz_similitud_manual = calcular_matriz_similitud_coseno_manual(matriz)
+#matriz_similitud_manual= matriz_similitud_manual-1
+#matriz_similitud_manual= matriz_similitud_manual*-1
+#np.fill_diagonal(matriz_similitud_manual, 0)
+f_similitud_manual = pd.DataFrame(
+    matriz_similitud_manual, 
+    columns=[f"Doc_{i+1}" for i in range(len(titulos))], 
+    index=[f"Doc_{i+1}" for i in range(len(titulos))]
+)
+print(f_similitud_manual)
+# Convertir a DataFrame para visualización
+#df_tf_idf = pd.DataFrame(matriz_tf_idf, columns=vocabulario)
+#titulos=normalizacion(titulos)
+#keyword=normalizacion(keyword)
+#abstrac=normalizacion(abstrac)
+#titulos=matriz_similitud_jaccard(titulos)
+#keyword=matriz_similitud_jaccard(keyword)
+#abstrac=tfcoseno(abstrac)
+#matriz=0.1*titulos+0.25*keyword+0.70*abstrac
+#matriz=matriz-1
+#matriz=matriz*-1
+#np.fill_diagonal(matriz, 0)
+#print(matriz)
+
+#print(len(matriz[0]))

@@ -62,7 +62,6 @@ def update_actividad(id):
             actividad.descripcion = data.get('descripcion', actividad.descripcion)
             actividad.tipo_usuario = data.get('tipo_usuario', actividad.tipo_usuario)
             actividad.estado = data.get('estado', actividad.estado)
-
             session.commit()
             return jsonify({"message": "Actividad actualizada exitosamente"})
         else:
